@@ -13,24 +13,29 @@ namespace EFTesting.Extensions
 {
     public static class LinqExtensions
     {
-        public static IQueryable<TSource> Like<TSource, TItem>(this IQueryable<TSource> source, Expression<Func<TSource, TItem>> expression, string[] words)
+        // LINQKit
+        public static IQueryable<TSource> Like<TSource>(this IQueryable<TSource> source,
+            Expression<Func<TSource, string>> expression, string[] words)
         {
-            return source;
+            return source.AsExpandable()
+                .Where(x => words.Any(w => EF.Functions.Like(expression.Invoke(x), "%" + w + "%")));
+        }
 
-            //I don't know why EF.Functions.Like won't work here. I mean no overloading matches this parameter
+        // Manual expression trees manipulation
+        public static IQueryable<TSource> Like1<TSource>(this IQueryable<TSource> source,
+            Expression<Func<TSource, string>> expression, string[] words)
+        {
+            Expression<Func<string, string, bool>> efLikeSource = (o, s) => EF.Functions.Like(o, "%" + s + "%");
+            Expression<Func<TSource, bool>> wordsAny = x => words.Any(word => true);
 
-            //return source.AsExpandable().Where(x => EF.Functions.Like(expression.Invoke(x), "%" + words[0] + "%"));
-
-            //Expression<Func<object, string, bool>> efLikeSource = (o, s) => EF.Functions.Like(o, "%" + s + "%");
-            //Expression<Func<TSource, bool>> wordsAny = x => words.Any(word => true);
-
-            //var wordsAnyBody = wordsAny.Body as MethodCallExpression;
-            //var efLikeBody = new ReplacingExpressionVisitor(new[] { efLikeSource.Parameters[0] }, new[] { expression.Body }).Visit(efLikeSource.Body);
-            //var efLikeLambda = Expression.Lambda<Func<string, bool>>(efLikeBody, efLikeSource.Parameters[1]);
-            //var wordsAnyNewBody = Expression.Call(wordsAnyBody.Method, wordsAnyBody.Arguments.First(), efLikeLambda);
-            //var result = Expression.Lambda<Func<TSource, bool>>(wordsAnyNewBody, expression.Parameters);
-            //return source.Where(result);
+            var wordsAnyBody = wordsAny.Body as MethodCallExpression;
+            var efLikeBody =
+                new ReplacingExpressionVisitor(new[] { efLikeSource.Parameters[0] }, new[] { expression.Body }).Visit(
+                    efLikeSource.Body);
+            var efLikeLambda = Expression.Lambda<Func<string, bool>>(efLikeBody, efLikeSource.Parameters[1]);
+            var wordsAnyNewBody = Expression.Call(wordsAnyBody.Method, wordsAnyBody.Arguments.First(), efLikeLambda);
+            var result = Expression.Lambda<Func<TSource, bool>>(wordsAnyNewBody, expression.Parameters);
+            return source.Where(result);
         }
     }
-
 }
